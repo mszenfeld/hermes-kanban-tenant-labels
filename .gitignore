@@ -1,0 +1,8 @@
+node_modules/
+.DS_Store
+.worktrees/
+
+# Local working files of coding agents.
+docs/qa/
+docs/reviews/
+docs/plans/

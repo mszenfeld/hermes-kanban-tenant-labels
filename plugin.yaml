@@ -1,0 +1,9 @@
+name: hermes-kanban-tenant-labels
+version: 0.3.0
+manifest_version: 2
+description: "Desktop-only: a colored tenant label on every Kanban card in Hermes Desktop. No agent-side code; the package only carries desktop/plugin.js."
+author: Marian Szenfeld
+license: MIT
+homepage: https://github.com/mszenfeld/hermes-kanban-tenant-labels
+tags: [desktop, kanban, tenants, labels]
+requires_hermes: ">=0.22.0"

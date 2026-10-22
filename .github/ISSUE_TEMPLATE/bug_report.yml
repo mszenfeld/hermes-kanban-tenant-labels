@@ -1,0 +1,69 @@
+name: Bug report
+description: Labels missing, wrong or breaking something in Hermes Desktop
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check [Known issues in the README](https://github.com/mszenfeld/hermes-kanban-tenant-labels/blob/main/README.md#known-issues) first.
+        Report security problems privately by following [SECURITY.md](https://github.com/mszenfeld/hermes-kanban-tenant-labels/blob/main/SECURITY.md).
+
+  - type: input
+    id: desktop-version
+    attributes:
+      label: Hermes Desktop version
+      description: Find it in Settings → About.
+    validations:
+      required: true
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      description: >-
+        Command-line and symlink installs: the `version` in `~/.hermes/plugins/hermes-kanban-tenant-labels/plugin.yaml`.
+        Desktop installs and hand copies have no version file: give the release or commit you installed, or write unknown.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Installation method
+      options:
+        - Install from Git in Hermes Desktop
+        - hermes plugins install
+        - Install link
+        - Manual copy or symlink
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened and what you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: console-warning
+    attributes:
+      label: Console warning
+      description: >-
+        Open the developer tools (View → Toggle Developer Tools, Alt+Cmd+I on macOS, Ctrl+Shift+I on Windows and Linux).
+        In the Console tab, filter for `hermes-kanban-tenant-labels`.
+        Paste every line starting with `[hermes-kanban-tenant-labels]` or write "none".
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce

@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: node --test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: node --test
+
+  validate:
+    name: hermes plugins validate (Hermes v0.22.2)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Hermes v0.22.2. These steps copy hermes-agent's .github/actions/plugin-validate at this commit and add --install-deps, which that action does not pass.
+      HERMES_SHA: d923a5eb487a17c0a68801bba9ef0f56c81040a8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Fetch Hermes and prepare its toolchain
+        id: source
+        run: |
+          set -euo pipefail
+          source=$(mktemp -d "$RUNNER_TEMP/hermes.XXXXXX")
+          git init -q "$source"
+          git -C "$source" remote add origin https://github.com/NousResearch/hermes-agent.git
+          git -C "$source" fetch --depth=1 -- origin "$HERMES_SHA"
+          git -C "$source" checkout -q --detach FETCH_HEAD
+          echo "source=$source" >> "$GITHUB_OUTPUT"
+          python3 -S "$source/scripts/ci/setup_toolchain.py" prepare --toolchain python --home "$source/.build/pm"
+      - name: Install the locked Python toolchain
+        env:
+          SOURCE: ${{ steps.source.outputs.source }}
+        run: python3 -S "$SOURCE/scripts/ci/setup_toolchain.py" install --toolchain python --home "$SOURCE/.build/pm"
+      - name: Build the Hermes runtime
+        id: runtime
+        working-directory: ${{ steps.source.outputs.source }}
+        env:
+          SOURCE: ${{ steps.source.outputs.source }}
+        run: |
+          set -euo pipefail
+          "$HERMES_PYTHON" - <<'PY'
+          import os
+          from pathlib import Path
+          from pm import build_environment
+          source = Path(os.environ["SOURCE"])
+          python = build_environment(source=source, out=source / ".build/validator", explicit=True)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"python={python}\n")
+          PY
+      # cmd_validate (hermes_cli/plugins_cmd_catalog.py) catches a failed --install-deps,
+      # prints 'dependency preparation failed: …' to stderr and still exits by the report.
+      # Recheck this string whenever HERMES_SHA changes.
+      - name: hermes plugins validate . --install-deps
+        env:
+          VALIDATOR_PYTHON: ${{ steps.runtime.outputs.python }}
+        run: |
+          set -euo pipefail
+          status=0
+          "$VALIDATOR_PYTHON" -I -m hermes_cli.main plugins validate . --install-deps 2>"$RUNNER_TEMP/validate-stderr.log" || status=$?
+          cat "$RUNNER_TEMP/validate-stderr.log" >&2
+          if grep -q 'dependency preparation failed' "$RUNNER_TEMP/validate-stderr.log"; then
+            echo "::error::hermes plugins validate --install-deps could not prepare dependencies"
+            exit 1
+          fi
+          exit "$status"
