@@ -1,121 +1,82 @@
 # Design notes
 
-Notes for contributors: how the plugin finds and labels Kanban card tiles,
-which Desktop internals it depends on, and why it works this way. Source links
-point to [hermes-agent](https://github.com/NousResearch/hermes-agent/tree/v0.22.2)
-at the `v0.22.2` tag. Hermes Desktop v0.22.2 renders the same markup and uses the same
-query keys.
+Notes for contributors: how the plugin labels Kanban cards through the card
+badge slot, assigns colors and uses the SDK contract. Source links point to
+hermes-agent at commit `e04614a`, the merge of
+[NousResearch/hermes-agent#143673](https://github.com/NousResearch/hermes-agent/pull/143673),
+because no Hermes release includes the slot yet. The contract is defined in
+[kanban-card-badges.tsx](https://github.com/NousResearch/hermes-agent/blob/e04614af7bb4e982b76e5256f5ec207198e0641e/apps/desktop/src/contrib/kanban-card-badges.tsx)
+and the
+[Desktop plugin SDK guide](https://github.com/NousResearch/hermes-agent/blob/e04614af7bb4e982b76e5256f5ec207198e0641e/website/docs/developer-guide/desktop-plugin-sdk.md#kanban-card-badges).
 
-## SDK seams for card tiles
+## The card badge slot
 
-| Seam | Result |
-|------|--------|
-| Contribution areas ([desktop-plugin-sdk.md](https://github.com/NousResearch/hermes-agent/blob/v0.22.2/website/docs/developer-guide/desktop-plugin-sdk.md), [apps/desktop/src/sdk/index.ts](https://github.com/NousResearch/hermes-agent/blob/v0.22.2/apps/desktop/src/sdk/index.ts)) | Panes, routes, sidebar nav and its preferences, status bar, title bar, page header, palette, keybinds, themes, composer, model menu rows, session rows, appearance, settings pages, transcript directives, chat empty state and layouts. None of them covers Kanban cards. `SESSION_ROW_AREAS` and `MODEL_MENU_ROW_AREA` have the shape a card badge would need, but they decorate only those two lists. |
-| Kanban-specific contribution | The board is the bundled desktop plugin `kanban` ([apps/desktop/src/plugins/kanban/](https://github.com/NousResearch/hermes-agent/tree/v0.22.2/apps/desktop/src/plugins/kanban)). Its `Card` component renders a fixed tree and reads no contribution area. |
-| Theme and CSS hooks | The only Kanban CSS hooks are `.kanban-arc` and the `--kanban-tone` custom property (the status color). Neither carries the task or the tenant, and CSS alone cannot read the tenant. |
-| `ctx.rest` | Scoped to the calling plugin's own `/api/plugins/<id>` namespace, and `..` segments are rejected ([apps/desktop/src/api/plugins.ts](https://github.com/NousResearch/hermes-agent/blob/v0.22.2/apps/desktop/src/api/plugins.ts)). A third-party plugin cannot call `/api/plugins/kanban/*`. |
-| `host.request` (gateway JSON-RPC) | The SDK guide lists "kanban" among the methods, but [tui_gateway/](https://github.com/NousResearch/hermes-agent/tree/v0.22.2/tui_gateway) registers no `kanban.*` method. |
-| Shared React Query cache | The Kanban plugin fetches `/api/plugins/kanban/board?board=<slug>` into the app's single `QueryClient` under `['kanban', 'board', connectionScope, boardSlug, includeArchived]`, and the SDK exports that client as `queryClient`. The plugin uses this cache as its data source: it already holds the boards on screen, and reading it needs no backend, no extra request and no configuration. |
-| Own `plugin_api.py` | Possible (reading [hermes_cli/kanban_db.py](https://github.com/NousResearch/hermes-agent/blob/v0.22.2/hermes_cli/kanban_db.py) read-only), but it needs `plugins.enabled` in `config.yaml`, a gateway restart and polling, and it cannot see which board the user selected. The plugin does not use it for those reasons. |
+The plugin uses one contribution, with the id `'tenant'`, equivalent to:
 
-## How a tile maps to its task
-
-[`Card`](https://github.com/NousResearch/hermes-agent/blob/v0.22.2/apps/desktop/src/plugins/kanban/board.tsx) in `board.tsx` renders:
-
-```html
-<div draggable="true" style="--kanban-tone: …; border-left-color: …" class="group relative flex cursor-grab flex-col gap-2 …">
-  <span class="kanban-arc" aria-hidden="true"></span>        <!-- only while running/stale -->
-  <span class="line-clamp-2 …">{task.title || task.id}</span>
-  <span class="line-clamp-2 …">{summary}</span>               <!-- optional -->
-  <div class="flex items-center gap-2 whitespace-nowrap …">  <!-- CardFooter -->
-    …
-    <div class="ml-auto flex min-w-0 shrink items-center gap-2">
-      …
-      <span class="min-w-0 truncate font-mono …">{shortId(task.id)}</span>
-    </div>
-  </div>
-</div>
+```js
+ctx.register({
+  area: KANBAN_CARD_AREAS.badges,
+  id: 'tenant',
+  data: { decorate }
+})
 ```
 
-- No `data-*` attribute carries the task id or tenant. The tenant is rendered
-  only in the detail drawer (`metaTenant`).
-- `shortId(id) = id.replace(/^t_/, '').slice(0, 6)` is visible on every tile.
-- The title is `task.title || task.id`.
-- Tiles are keyed by `task.id`, so a tile element always shows the same task.
+Desktop calls `decorate(card, board)` while rendering each card. It passes a
+frozen `card` with `{ id, status, tenant, assignee }` and a frozen `board` with
+`{ tenants }`. The tenant array is also frozen and is copied for each call.
+`board.tenants` is the board's tenant filter list, including tenants from
+archived tasks. Board filters do not narrow that list, so filtering does not
+change the badge colors.
 
-The plugin matches a tile to a task when one of the tile's leaf elements shows
-the task's short id and another shows its title. If two tasks would match
-the same tile, the tile is left alone.
+The decorator returns `{ label, tone, tooltip: 'Tenant: <tenant>' }`, using the
+tenant name as the label and an SDK hue as the tone, or `null` for a card
+without a tenant. Desktop sanitizes the result, shortens labels longer than 24
+characters with an ellipsis and limits the tooltip text to 160 characters. It
+adds the plugin's name below that text in the tooltip. The host allows at most
+two badges per plugin on each card and orders contributions by plugin id.
+Desktop paints the badges as chips in a row above the card title; the plugin
+does not write the badge markup or styles.
 
-React fiber props (`__reactFiber$…`) would give the task object directly, but
-the SDK guide names fiber walks as the anti-pattern to migrate away from, so
-the plugin does not use them.
+## Pins and repaint
 
-## Desktop internals the plugin depends on
+Registering the same area and id again replaces the contribution and repaints
+the board. Each registration gets a new decorator with a snapshot of the
+current pins. Picking or clearing a pinned color in Settings stores the pins
+through `ctx.storage` under `pins` and registers the badge contribution again.
 
-All of these are internal to Desktop and can change in any release.
+Disabling or unloading the plugin removes its badges. There is nothing to
+clean up in `ctx.onDispose`.
 
-| Relied on | Current value |
-|-----------|---------------|
-| Kanban route | `location.hash` is `#/kanban` (Desktop uses a HashRouter) |
-| Card tile | `[draggable="true"][style*="--kanban-tone"]` |
-| Page root | the nearest ancestor of a tile with a direct `<header>` child that contains an `<h1>`; column headers have no `<h1>` |
-| Tile text | leaf elements showing `shortId(task.id)` and `task.title \|\| task.id` |
-| Board data | `queryClient` entries keyed `['kanban', 'board', scope, slug, archived]`, with data `{ columns: [{ name, tasks: [{ id, title, tenant, … }] }], tenants: [] }` |
-| Task fields | `id`, `title` and `tenant` on each task of the snapshot |
+## Tenant list for the settings page
 
-When the cache reports observers (`query.getObserversCount()`), only the
-observed snapshots count: the board the page and its status-bar count show. A
-task id that carries different tenants on two counted boards, for example an
-imported copy of a board, gets no label.
+The decorator receives `board.tenants`. When that list changes, the plugin
+updates the settings page's tenant store through a 0 ms `ctx.setTimeout`.
+Deferring the update keeps it out of the board's render, which is when
+`decorate` runs.
 
-## When Desktop changes
+The settings page lists the tenants of the last board that rendered at least
+one card since Desktop started, plus pinned tenants. With no pinned tenants
+and no card rendered yet, it shows "No tenants yet" and:
 
-The board itself keeps working in every case below.
+> Open a Kanban board that shows at least one card; its tenants show up here.
 
-- A markup or data mismatch logs one `[hermes-kanban-tenant-labels]` console
-  warning per kind of mismatch, each under its own `warnOnce` key: `data` (tiles
-  on screen but no board data in the cache), `fields` (no task has a `tenant`
-  field), `match` (no tile matches a task), `root` (no page root around the
-  tiles) and `tiles` (board data but no tile). Cards the plugin cannot match get
-  no new labels. A mismatch does not necessarily remove existing labels.
-- The `tiles` warning waits for eight route ticks (`MISSING_TILE_TICKS`) with
-  board tasks in the cache. Ticks before the data arrives do not count.
-- If the route changes, the plugin never activates and logs nothing.
-- An exception in a host callback shuts the labeler down. It removes its
-  badges, stops its listeners and timers, and logs once under the `error` key
-  without throwing into the board. Reloading the plugin turns labels back on.
-- If the SDK's query cache, `MutationObserver` or the tracked timers are missing
-  at startup, the plugin logs one warning and does not start.
+A board with no visible cards does not update the list: no filter matches,
+collapsed columns, only archived tasks or an empty board can leave no cards to
+render. The host does not call `decorate` in that case, and the slot provides
+no other board-level signal. This affects only the settings list. Badge colors
+always use the current board's tenant list.
 
-`tests/labeler.test.js` covers all five markup and data warnings, including late
-board data and tile text with unrecognized short ids, plus host-callback
-exception isolation and teardown.
+## Older Hermes releases
 
-## Scope of the DOM work
+The plugin imports the SDK as a namespace so it can check for the slot without
+failing to load the module on older hosts. If `KANBAN_CARD_AREAS.badges`, a
+12-element `KANBAN_CARD_BADGE_HUES`, `atom`, `ctx.register` or `ctx.setTimeout`
+is missing, it logs one console warning and registers neither badges nor a
+settings page:
 
-- Route gate: a 750 ms `ctx.setInterval` reads `location.hash`, plus
-  `hashchange`/`popstate` listeners through `ctx.addEventListener`, plus every
-  board-data change in the cache. Polling is needed because the sidebar
-  navigates with `history.pushState`, which fires neither event. The gate is
-  open on `#/kanban` and on its subpaths and query strings.
-- One `MutationObserver` on the page root of each board on screen
-  (`childList`, `subtree`, `characterData`). That is the main page, plus a
-  board in a split route tile while the main route is the board. It is created
-  only while the route is active and disconnected when the route is left. A
-  board stays observed while it is mounted, even when every card is filtered
-  out. Records caused by the plugin's own badge are ignored. A board in a split
-  tile next to a chat is not observed.
-- The observer callback runs the pass directly. The callback is a microtask
-  after React's commit, so a new tile gets its label before the next paint.
-- A query-cache subscription runs a coalesced pass 50 ms after board data
-  changes.
-- The badge is inserted as the tile's first child. It is the only node the
-  plugin writes, and a pass that finds nothing to change writes nothing.
-- Each labeled card is one line taller. The badge sits in React-owned markup,
-  an approach the SDK discourages where a supported slot exists.
-- Disabling, reloading or removing the plugin removes every label and stops the
-  observer, the cache subscription, the timers and the listeners.
+```text
+[hermes-kanban-tenant-labels] This Hermes Desktop has no Kanban card badge slot (KANBAN_CARD_AREAS.badges); labels are off.
+```
 
 ## Colors
 
@@ -129,6 +90,22 @@ shares the first unpinned hue from its preferred one, or its preferred hue if
 every hue is pinned. Changing the hash would recolor every tenant for every
 user, so `tests/colours.test.js` checks it against published FNV-1a vectors.
 
-The badge is styled inline, so it needs no injected stylesheet and leaves
-nothing behind when removed. Its background is a 16% tint of the hue, its ring
-a 45% tint, and its text mixes 40% of the hue into `--ui-text-primary` in OKLab.
+`PALETTE[i]` maps to `KANBAN_CARD_BADGE_HUES[i]`. The SDK hue order is `'red'`,
+`'orange'`, `'yellow'`, `'lime'`, `'green'`, `'mint'`, `'cyan'`, `'sky'`, `'blue'`,
+`'violet'`, `'magenta'`, `'pink'`. Desktop paints tone `i` with
+`PROFILE_SWATCHES[i]` = `hsl(i×30 68% 58%)` = `PALETTE[i]`, so stored pins keep
+their colors.
+
+Within each decorator, the color assignment is recomputed only when the
+board's tenant list changes, not for every card. The host supplies a new array
+on each call, so the plugin compares the list's values rather than its identity.
+
+## History
+
+Through v0.3.0, the plugin decorated the board's DOM with route polling, a
+`MutationObserver`, tile matching and query-cache reads. That design is in the
+[v0.3.0 design notes](https://github.com/mszenfeld/hermes-kanban-tenant-labels/blob/v0.3.0/docs/design.md),
+and the proposed slot is in the
+[v0.3.0 slot proposal](https://github.com/mszenfeld/hermes-kanban-tenant-labels/blob/v0.3.0/docs/sdk-slot-proposal.md).
+Upstream implemented the slot in
+[NousResearch/hermes-agent#143673](https://github.com/NousResearch/hermes-agent/pull/143673).
