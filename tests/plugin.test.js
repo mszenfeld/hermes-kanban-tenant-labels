@@ -1,120 +1,72 @@
 import assert from 'node:assert/strict'
-import { after, afterEach, describe, test } from 'node:test'
+import { afterEach, describe, test } from 'node:test'
 
-import { badgesIn, boardDocument, boardKey, boardSnapshot, fakeTimers, fakeWindow, settle } from './helpers/fixture.mjs'
 import { plugin, sdk } from './helpers/load-plugin.mjs'
 
-const { BADGE_ATTR, PALETTE, PLUGIN_ID, preferredColour } = plugin
+const { PALETTE, PLUGIN_ID, assignColours, preferredColour } = plugin
 const definition = plugin.default
 
-const COLUMNS = [
-  {
-    name: 'todo',
-    tasks: [
-      { id: 't_1f2e3d4c', tenant: 'backend', title: 'Fix login timeout' },
-      { id: 't_11aa22bb', tenant: 'frontend', title: 'Landing page' },
-      { id: 't_9a1b2c3d', tenant: null, title: 'No tenant here' }
-    ]
-  }
-]
+const BADGE_KEY = 'kanban.card.badges:tenant'
+const TENANTS = ['backend', 'frontend', 'mobile']
 
-/** The parts of the plugin context the plugin uses, with host-like unload. */
-function fakeContext(timers) {
-  const disposers = []
+/** The parts of the plugin context the plugin uses. `register` replaces a
+ *  contribution with the same area and id, like the host registry. */
+function fakeContext() {
+  const contributions = new Map()
   const pages = []
   const stored = new Map()
+  const timeouts = new Set()
 
   return {
-    addEventListener: (target, type, listener) => timers.addEventListener(target, type, listener),
-    onDispose: fn => disposers.push(fn),
+    contributions,
+    flushTimeouts() {
+      for (const fn of [...timeouts]) {
+        timeouts.delete(fn)
+        fn()
+      }
+    },
     pages,
+    register(contribution) {
+      const key = `${contribution.area}:${contribution.id}`
+
+      contributions.set(key, contribution)
+
+      return () => contributions.delete(key)
+    },
     registerSettingsPage(page) {
       pages.push(page)
 
       return () => pages.splice(pages.indexOf(page), 1)
     },
-    setInterval: (fn, ms) => timers.setInterval(fn, ms),
-    setTimeout: (fn, ms) => timers.setTimeout(fn, ms),
+    setTimeout(fn) {
+      timeouts.add(fn)
+
+      return () => timeouts.delete(fn)
+    },
     storage: {
       get: (key, fallback) => (stored.has(key) ? JSON.parse(stored.get(key)) : fallback),
       remove: key => stored.delete(key),
       set: (key, value) => stored.set(key, JSON.stringify(value))
     },
-    stored,
-    unload() {
-      for (const dispose of disposers.splice(0)) {
-        dispose()
-      }
-    }
+    stored
   }
 }
 
-function installGlobals(hash = '#/kanban', columns = COLUMNS) {
-  const board = boardSnapshot(columns)
-  const { document, window } = boardDocument(board)
-  const win = fakeWindow(window, hash)
+/** What the board would get from decorate() for a card with `tenant` on a
+ *  board whose tenant list is `tenants`, with the host's frozen views. */
+function badgeFor(ctx, tenant, tenants = TENANTS) {
+  const { decorate } = ctx.contributions.get(BADGE_KEY).data
 
-  globalThis.document = document
-  globalThis.window = win
-  sdk.queryClient.setQueryData(boardKey(), board)
-
-  return { board, document, win }
+  return decorate(
+    Object.freeze({ assignee: null, id: 't_1f2e3d4c', status: 'todo', tenant }),
+    Object.freeze({ tenants: Object.freeze([...tenants]) })
+  )
 }
 
-afterEach(() => {
-  delete globalThis.document
-  delete globalThis.window
-  sdk.queryClient.clear()
-})
+const toneOf = colour => sdk.KANBAN_CARD_BADGE_HUES[PALETTE.indexOf(colour)]
+const rows = ctx => ctx.pages[0].render().props.children[1]
 
-after(() => {
-  assert.equal(sdk.queryClient.listenerCount(), 0, 'a test left a cache subscription behind')
-})
-
-describe('plugin module', () => {
-  test('default-exports a HermesPlugin whose id matches the install folder name', () => {
-    assert.equal(definition.id, PLUGIN_ID)
-    assert.equal(PLUGIN_ID, 'hermes-kanban-tenant-labels')
-    assert.equal(typeof definition.name, 'string')
-    assert.equal(typeof definition.register, 'function')
-  })
-
-  test('register() does not throw outside a browser and contributes nothing', () => {
-    const timers = fakeTimers()
-    const ctx = fakeContext(timers)
-
-    assert.doesNotThrow(() => definition.register(ctx))
-    assert.equal(ctx.pages.length, 0)
-    assert.deepEqual(timers.pending(), { intervals: 0, listeners: 0, timeouts: 0 })
-  })
-
-  test('register() does not throw in the app and registers a settings page', () => {
-    installGlobals()
-
-    const timers = fakeTimers()
-    const ctx = fakeContext(timers)
-
-    assert.doesNotThrow(() => definition.register(ctx))
-    assert.equal(ctx.pages.length, 1)
-    assert.equal(ctx.pages[0].title, 'Kanban Tenant Labels')
-
-    ctx.unload()
-  })
-
-  test('register() on a host without registerSettingsPage still labels cards', async () => {
-    const { document } = installGlobals()
-    const timers = fakeTimers()
-    const ctx = fakeContext(timers)
-
-    delete ctx.registerSettingsPage
-    assert.doesNotThrow(() => definition.register(ctx))
-    await settle(timers)
-
-    assert.equal(badgesIn(document, BADGE_ATTR).length, 2)
-
-    ctx.unload()
-  })
-})
+afterEach(() => sdk.setBadgeSlot(true))
 
 /** Render one settings row a level deep and return its ColorSwatches props. */
 function swatchesOf(row) {
@@ -137,113 +89,192 @@ function swatchesOf(row) {
   return find(row.type(row.props))
 }
 
-describe('plugin lifecycle', () => {
-  test('labels the board, applies a pinned color from Settings and removes everything on unload', async () => {
-    const { board, document } = installGlobals()
-    const timers = fakeTimers()
-    const ctx = fakeContext(timers)
+describe('plugin module', () => {
+  test('default-exports a HermesPlugin whose id matches the install folder name', () => {
+    assert.equal(definition.id, PLUGIN_ID)
+    assert.equal(PLUGIN_ID, 'hermes-kanban-tenant-labels')
+    assert.equal(typeof definition.name, 'string')
+    assert.equal(typeof definition.register, 'function')
+  })
+
+  test('register() adds the tenant badge to the Kanban card badge area and a settings page', () => {
+    const ctx = fakeContext()
 
     definition.register(ctx)
-    await settle(timers)
 
-    const hueOf = tenant =>
-      badgesIn(document, BADGE_ATTR)
-        .find(badge => badge.textContent === tenant)
-        ?.style.getPropertyValue('--kanban-tenant-hue')
+    assert.deepEqual([...ctx.contributions.keys()], [BADGE_KEY])
+    assert.equal(ctx.pages.length, 1)
+    assert.equal(ctx.pages[0].title, 'Kanban Tenant Labels')
+  })
 
-    // The Settings page lists the board's tenants with the colors the badges use.
-    const rows = () => ctx.pages[0].render().props.children[1]
-    const row = tenant => rows().find(item => item.props.tenant === tenant)
+  test('on a Hermes without the card badge slot, register() adds nothing and warns once', t => {
+    const ctx = fakeContext()
+    const warn = t.mock.method(console, 'warn', () => {})
 
-    assert.deepEqual(
-      rows().map(item => item.props.tenant),
-      board.tenants
-    )
+    sdk.setBadgeSlot(false)
+    definition.register(ctx)
 
-    for (const item of rows()) {
-      assert.equal(item.props.colour, hueOf(item.props.tenant))
-      assert.equal(item.props.pinned, false)
+    assert.equal(ctx.contributions.size, 0)
+    assert.equal(ctx.pages.length, 0)
+    assert.equal(warn.mock.callCount(), 1)
+    assert.ok(warn.mock.calls[0].arguments[0].startsWith('[hermes-kanban-tenant-labels] '))
+  })
+
+  test('register() on a host without registerSettingsPage still adds the badge', () => {
+    const ctx = fakeContext()
+
+    delete ctx.registerSettingsPage
+    definition.register(ctx)
+
+    assert.equal(badgeFor(ctx, 'backend').label, 'backend')
+  })
+})
+
+describe('tenant badges', () => {
+  test('a card with a tenant gets its name, its assigned hue and a tooltip', () => {
+    const ctx = fakeContext()
+
+    definition.register(ctx)
+
+    assert.deepEqual(badgeFor(ctx, 'frontend'), {
+      label: 'frontend',
+      tone: toneOf(assignColours(TENANTS).get('frontend')),
+      tooltip: 'Tenant: frontend'
+    })
+  })
+
+  test('a card without a tenant gets no badge', () => {
+    const ctx = fakeContext()
+
+    definition.register(ctx)
+
+    for (const tenant of [null, '', '   ']) {
+      assert.equal(badgeFor(ctx, tenant), null)
     }
+  })
 
-    // The row's color picker offers the palette, with nothing pinned yet.
-    assert.deepEqual(swatchesOf(row('frontend')).swatches, PALETTE)
-    assert.equal(swatchesOf(row('frontend')).value, null)
+  test("tenant names are trimmed on the card and in the board's tenant list", () => {
+    const ctx = fakeContext()
 
-    // Picking a swatch pins it: persisted through ctx.storage, badge recolored.
-    const pinned = PALETTE.find(colour => colour !== hueOf('frontend'))
+    definition.register(ctx)
+
+    const badge = badgeFor(ctx, '  frontend ', [' frontend', 'backend'])
+
+    assert.equal(badge.label, 'frontend')
+    assert.equal(badge.tone, toneOf(assignColours(['backend', 'frontend']).get('frontend')))
+  })
+
+  test('tenants whose preferred hues collide get different hues', () => {
+    const ctx = fakeContext()
+
+    assert.equal(preferredColour('api'), preferredColour('design'))
+    definition.register(ctx)
+
+    assert.notEqual(badgeFor(ctx, 'api', ['api', 'design']).tone, badgeFor(ctx, 'design', ['api', 'design']).tone)
+  })
+
+  test("a change in the board's tenant list recolors the badges and replaces the settings list", () => {
+    const ctx = fakeContext()
+
+    assert.notEqual(assignColours(['design']).get('design'), assignColours(['api', 'design']).get('design'))
+    definition.register(ctx)
+
+    for (const list of [['design'], ['api', 'design'], ['design']]) {
+      assert.equal(badgeFor(ctx, 'design', list).tone, toneOf(assignColours(list).get('design')))
+      ctx.flushTimeouts()
+      assert.deepEqual(rows(ctx).map(row => row.props.tenant), list)
+    }
+  })
+
+  test('each palette color is painted as the SDK hue at the same index', () => {
+    for (let index = 0; index < PALETTE.length; index += 1) {
+      const ctx = fakeContext()
+
+      ctx.storage.set('pins', { acme: PALETTE[index] })
+      definition.register(ctx)
+
+      assert.equal(badgeFor(ctx, 'acme', ['acme']).tone, sdk.KANBAN_CARD_BADGE_HUES[index])
+    }
+  })
+})
+
+describe('settings page', () => {
+  test("lists the board's tenants once the board has rendered, with the badges' hues", () => {
+    const ctx = fakeContext()
+
+    definition.register(ctx)
+
+    assert.equal(rows(ctx).props.title, 'No tenants yet')
+    badgeFor(ctx, 'backend')
+    assert.equal(rows(ctx).props.title, 'No tenants yet')
+    ctx.flushTimeouts()
+    assert.deepEqual(rows(ctx).map(row => row.props.tenant), TENANTS)
+
+    for (const row of rows(ctx)) {
+      assert.equal(row.props.pinned, false)
+      assert.equal(toneOf(row.props.colour), badgeFor(ctx, row.props.tenant).tone)
+      assert.deepEqual(swatchesOf(row).swatches, PALETTE)
+    }
+  })
+
+  test('picking a color pins it and repaints the badges; Automatic color unpins', () => {
+    const ctx = fakeContext()
+
+    definition.register(ctx)
+    badgeFor(ctx, 'backend')
+    ctx.flushTimeouts()
+
+    const row = tenant => rows(ctx).find(item => item.props.tenant === tenant)
+    const before = ctx.contributions.get(BADGE_KEY)
+    const automatic = badgeFor(ctx, 'frontend').tone
+    const pinned = PALETTE.find(colour => toneOf(colour) !== automatic)
 
     swatchesOf(row('frontend')).onChange(pinned)
-    await settle(timers)
 
     assert.deepEqual(JSON.parse(ctx.stored.get('pins')), { frontend: pinned })
-    assert.equal(hueOf('frontend'), pinned)
+    assert.notEqual(ctx.contributions.get(BADGE_KEY), before)
+    assert.equal(badgeFor(ctx, 'frontend').tone, toneOf(pinned))
     assert.equal(row('frontend').props.pinned, true)
     assert.equal(swatchesOf(row('frontend')).value, pinned)
 
-    // "Automatic color" (onChange(null)) clears the pin.
     swatchesOf(row('frontend')).onChange(null)
-    await settle(timers)
 
     assert.deepEqual(JSON.parse(ctx.stored.get('pins')), {})
-
-    ctx.unload()
-
-    assert.equal(badgesIn(document, BADGE_ATTR).length, 0)
-    assert.deepEqual(timers.pending(), { intervals: 0, listeners: 0, timeouts: 0 })
-    assert.equal(sdk.queryClient.listenerCount(), 0)
+    assert.equal(badgeFor(ctx, 'frontend').tone, automatic)
   })
 
-  test('a stored pin is applied on load; an invalid stored value is ignored', async () => {
-    const { document } = installGlobals()
-    const timers = fakeTimers()
-    const ctx = fakeContext(timers)
+  test('a stored pin is applied on load; an invalid stored value is ignored', () => {
+    const ctx = fakeContext()
 
     assert.notEqual(preferredColour('frontend'), PALETTE[2])
     ctx.storage.set('pins', { backend: 'url(javascript:x)', frontend: PALETTE[2] })
     definition.register(ctx)
-    await settle(timers)
 
-    const hues = Object.fromEntries(
-      badgesIn(document, BADGE_ATTR).map(badge => [badge.textContent, badge.style.getPropertyValue('--kanban-tenant-hue')])
-    )
-
-    assert.equal(hues.frontend, PALETTE[2])
-    assert.ok(PALETTE.includes(hues.backend))
-
-    ctx.unload()
+    assert.equal(badgeFor(ctx, 'frontend').tone, sdk.KANBAN_CARD_BADGE_HUES[2])
+    assert.equal(badgeFor(ctx, 'backend').tone, toneOf(assignColours(TENANTS, { frontend: PALETTE[2] }).get('backend')))
   })
 
-  test('a tenant named __proto__ starts unpinned and can be pinned and unpinned', async () => {
-    const { document } = installGlobals('#/kanban', [
-      { name: 'todo', tasks: [{ id: 't_0b0b0b0b', tenant: '__proto__', title: 'Odd tenant' }] }
-    ])
-    const timers = fakeTimers()
-    const ctx = fakeContext(timers)
+  test('a tenant named __proto__ starts unpinned and can be pinned and unpinned', () => {
+    const ctx = fakeContext()
 
     definition.register(ctx)
-    await settle(timers)
+    badgeFor(ctx, '__proto__', ['__proto__'])
+    ctx.flushTimeouts()
 
-    const row = () => ctx.pages[0].render().props.children[1].find(item => item.props.tenant === '__proto__')
-    const hue = () => document.querySelector(`[${BADGE_ATTR}]`).style.getPropertyValue('--kanban-tenant-hue')
+    const row = () => rows(ctx).find(item => item.props.tenant === '__proto__')
+    const automatic = badgeFor(ctx, '__proto__', ['__proto__']).tone
+    const pinned = PALETTE.find(colour => toneOf(colour) !== automatic)
 
     assert.equal(row().props.pinned, false)
-    assert.ok(PALETTE.includes(hue()))
-
-    const pinned = PALETTE.find(colour => colour !== hue())
-
     swatchesOf(row()).onChange(pinned)
-    await settle(timers)
 
     assert.equal(Object.getOwnPropertyDescriptor(JSON.parse(ctx.stored.get('pins')), '__proto__')?.value, pinned)
-    assert.equal(hue(), pinned)
+    assert.equal(badgeFor(ctx, '__proto__', ['__proto__']).tone, toneOf(pinned))
     assert.equal(row().props.pinned, true)
 
     swatchesOf(row()).onChange(null)
-    await settle(timers)
 
     assert.deepEqual(Object.keys(JSON.parse(ctx.stored.get('pins'))), [])
     assert.equal(row().props.pinned, false)
-
-    ctx.unload()
   })
 })

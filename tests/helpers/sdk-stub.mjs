@@ -1,5 +1,4 @@
 // Minimal stand-in for `@hermes/plugin-sdk`: only what the plugin touches.
-// `queryClient` is a controllable fake of the app's shared React Query client.
 
 export function atom(initial) {
   let value = initial
@@ -26,59 +25,21 @@ export function useValue(store) {
   return store.get()
 }
 
-/** Fake of the TanStack QueryClient surface the plugin reads: a query cache
- *  with `getAll()` and `subscribe()`. */
-export function createFakeQueryClient() {
-  const queries = new Map()
-  const listeners = new Set()
-  let clock = 0
-
-  const cache = {
-    getAll: () => [...queries.values()],
-    subscribe(listener) {
-      listeners.add(listener)
-
-      return () => listeners.delete(listener)
-    }
-  }
-
-  const emit = (type, query) => {
-    for (const listener of [...listeners]) {
-      listener({ action: { type: 'success' }, query, type })
-    }
-  }
-
-  return {
-    /** Like TanStack: remove the queries first, then notify. */
-    clear() {
-      const removed = [...queries.values()]
-
-      queries.clear()
-
-      for (const query of removed) {
-        emit('removed', query)
-      }
-    },
-    getQueryCache: () => cache,
-    listenerCount: () => listeners.size,
-    /** `observers` mimics TanStack's `query.getObserversCount()`; omit it to
-     *  model a cache that cannot tell which queries are mounted. */
-    setQueryData(queryKey, data, { observers } = {}) {
-      clock += 1
-
-      const query = { queryKey, state: { data, dataUpdatedAt: clock } }
-
-      if (observers !== undefined) {
-        query.getObserversCount = () => observers
-      }
-
-      queries.set(JSON.stringify(queryKey), query)
-      emit('updated', query)
-    }
-  }
+const SLOT = {
+  areas: Object.freeze({ badges: 'kanban.card.badges' }),
+  hues: Object.freeze(['red', 'orange', 'yellow', 'lime', 'green', 'mint', 'cyan', 'sky', 'blue', 'violet', 'magenta', 'pink'])
 }
 
-export const queryClient = createFakeQueryClient()
+// `let` exports are live bindings: the plugin reads them from the SDK
+// namespace at register() time, so `setBadgeSlot(false)` models an older host.
+export let KANBAN_CARD_AREAS = SLOT.areas
+export let KANBAN_CARD_BADGE_HUES = SLOT.hues
+
+/** Test switch: `false` models a Hermes without the Kanban card badge slot. */
+export function setBadgeSlot(available) {
+  KANBAN_CARD_AREAS = available ? SLOT.areas : undefined
+  KANBAN_CARD_BADGE_HUES = available ? SLOT.hues : undefined
+}
 
 const component = name => {
   const render = props => ({ props, type: name })
