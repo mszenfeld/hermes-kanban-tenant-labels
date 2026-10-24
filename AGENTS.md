@@ -8,18 +8,14 @@ Rules for everyone who changes this repository, people and coding agents alike.
 Kanban Tenant Labels is a Hermes Desktop plugin that shows each Kanban card's
 tenant as a colored label on the card tile.
 
-- `desktop/plugin.js`: the whole plugin (colors, board data, tile matching, the
-  labeler and the settings page). Desktop loads it as committed.
+- `desktop/plugin.js`: the whole plugin (colors, the Kanban card badge
+  contribution and the settings page). Desktop loads it as committed.
 - `plugin.yaml`: the Hermes plugin manifest.
-- `package.json` and `package-lock.json`: Node metadata and the only
-  development dependency, `linkedom`.
+- `package.json` and `package-lock.json`: Node metadata and the test script.
+  The package has no dependencies.
 - `tests/`: suites for `node --test`. `tests/helpers/` maps `@hermes/plugin-sdk`,
-  `react` and `react/jsx-runtime` to small stubs and builds an HTML board
-  fixture with linkedom.
-- `docs/design.md`: how the plugin works and which Desktop internals it depends
-  on.
-- `docs/sdk-slot-proposal.md`: the Kanban card slot this plugin proposes for the
-  Desktop SDK.
+  `react` and `react/jsx-runtime` to small stubs.
+- `docs/design.md`: how the plugin works and which SDK contract it depends on.
 - `docs/media/`: screenshots used by the README and the banner for the plugin
   catalog entry.
 - `.github/`: the CI workflow and the bug report template.
@@ -41,10 +37,10 @@ their names even where they use British spelling: `assignColours`,
   [Desktop plugin SDK](https://hermes-agent.nousresearch.com/docs/developer-guide/desktop-plugin-sdk)
   and follow the
   [catalog rules](https://hermes-agent.nousresearch.com/docs/developer-guide/plugins/catalog-submission).
-  The one documented exception is the Kanban tile decoration described in
-  `docs/design.md`, which exists because the SDK has no Kanban card slot. Do not
-  add new DOM reach-in: no new selectors for Desktop markup, no reads of other
-  internal stores and no observers outside the Kanban page roots.
+  Cards are labeled only through the `KANBAN_CARD_AREAS.badges` contribution
+  described in `docs/design.md`. Do not add DOM reach-in: no selectors for
+  Desktop markup, no observers and no reads of the app's internal stores or
+  other plugins' query keys.
 
 ## Privacy
 

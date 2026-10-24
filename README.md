@@ -11,11 +11,19 @@ label, and card titles stay as they are.
 
 ## Requirements
 
-- Hermes v0.22.0 or later.
+- A Hermes release that includes the Kanban card badge slot of the Desktop
+  plugin SDK (`KANBAN_CARD_AREAS.badges`, added in
+  [NousResearch/hermes-agent#143673](https://github.com/NousResearch/hermes-agent/pull/143673)).
+  Hermes v0.22.5 and earlier do not have it: the plugin then adds no labels and
+  logs one `[hermes-kanban-tenant-labels]` console warning. On those versions use
+  [v0.3.0](https://github.com/mszenfeld/hermes-kanban-tenant-labels/releases/tag/v0.3.0),
+  for example
+  `hermes plugins install mszenfeld/hermes-kanban-tenant-labels --ref 48f4f34da212c8322e50dbcbbd4dfd2936ca6d41 --no-enable`.
 - The bundled Kanban plugin, enabled in Capabilities → Plugins → Kanban.
 - Kanban cards with a tenant.
 
-Tested with Hermes v0.22.2 on macOS.
+Tested on macOS with Hermes Desktop built from hermes-agent commit `e04614a`,
+the merge of the card badge slot.
 
 ## Install
 
@@ -43,7 +51,7 @@ Desktop on for the package. Leave its Agent switch off and do not run
 [Known issues](#known-issues)).
 
 If you enable it anyway and the CLI asks to install Node dependencies, answer N.
-The only dependency in `package.json` is `linkedom`, which the tests use.
+`package.json` only holds the test script and declares no dependencies.
 
 ### With an install link
 
@@ -59,8 +67,8 @@ Install from Git and installs nothing until you confirm.
 The palette has 12 hues in 30° steps, `hsl(0…330 68% 58%)`, matching the SDK's
 `PROFILE_SWATCHES`. A hash of the tenant name picks each tenant's preferred hue.
 If two tenants want the same hue, the one later in name order takes the next
-free hue. The tenants that count are those on the board on screen, archived
-cards included.
+free hue. The tenants that count are those in the board's tenant list, the one
+its tenant filter offers, archived cards included.
 
 With up to 12 tenants, each gets its own color unless pins reserve too many hues
 or two tenants are pinned to the same hue. With more than 12, the extra tenants
@@ -72,54 +80,50 @@ To keep a color fixed, open Settings → Plugins → Kanban Tenant Labels and pi
 color for the tenant. Choose Automatic color to unpin it. A pinned color stays
 reserved even when its tenant is not on the board, and other tenants avoid
 pinned colors unless all 12 hues are pinned.
+The settings page lists the tenants of the last board that showed at least one
+card since the plugin was last loaded (Desktop start, a plugin reload or
+switching the plugin back on), plus pinned tenants. A board that shows no card,
+for example when the filters match nothing, leaves that list as it was.
 
-The label's background and outline are tints of the tenant's hue. Its text is
-the theme's text color, `--ui-text-primary`, with 40% of the hue mixed in OKLab.
+Desktop paints the label. The plugin only picks one of the SDK's twelve badge
+hues, `KANBAN_CARD_BADGE_HUES`, which are the same colors as this palette.
 
 ![Settings page with tenant colors](docs/media/settings.png)
 
 ## Permissions & privacy
 
-The plugin reads board data that Desktop already holds in its shared query
-cache (task ids, titles and tenants) and keeps its task index in memory. It
-makes no network requests and runs no backend, Python or shell commands. There
-is no telemetry.
+The plugin reads what Desktop passes to its card badge decorator (each card's
+tenant and the board's tenant list) and the pins it stored itself. No network
+requests, no query-cache reads, no backend, Python or shell commands, no
+telemetry.
 
-It stores only pinned colors, through `ctx.storage` under the key `pins`
-(`hermes.plugin.hermes-kanban-tenant-labels.*`). Each labeled card tile gets one
-extra `<span>`.
+It stores only pinned colors through `ctx.storage` under `pins`
+(`hermes.plugin.hermes-kanban-tenant-labels.*`); writes no markup, because
+Desktop paints the labels.
 
-While it runs, the plugin checks the route every 750 ms and subscribes to the
-query cache. While `#/kanban` is open, a `MutationObserver` watches the Kanban
-page. Console warnings report markup or data mismatches, missing host APIs and
-failures in host callbacks.
+No timers, observers or listeners in the background; when a rendered card
+brings a changed board tenant list, the plugin updates its settings page once
+through a 0 ms `ctx.setTimeout`. On a Hermes without the slot it logs one
+console warning and registers nothing.
 
 ## How it works
 
-The bundled Kanban plugin keeps board snapshots in the app's shared React Query
-cache, which the SDK exports as `queryClient`. While `#/kanban` is open, the
-plugin reads the snapshots of the boards on screen, matches each card tile to
-its task by the short id and title the tile shows, and inserts the label as the
-tile's first child. It makes no extra requests. A `MutationObserver` labels new
-tiles before they are painted. Switching the plugin off, reloading or removing
-it removes every label and stops its observer, timers and listeners.
+Desktop's Kanban board calls the plugin's badge decorator for each card through
+`KANBAN_CARD_AREAS.badges`. The decorator returns the tenant as the label, a hue
+and a `Tenant: <name>` tooltip. Desktop paints the label in a row above the card
+title and adds the plugin's name to the tooltip. Picking a color in Settings
+registers the decorator again with the new pins and the board repaints.
+Switching the plugin off, reloading or removing it removes every label.
 [docs/design.md](docs/design.md) has the details.
 
 ## Limitations
 
-The Desktop SDK has no slot for Kanban cards, so the plugin relies on Desktop
-internals that are not public contracts: the `#/kanban` route, the card tile
-markup and the Kanban plugin's query keys. Any Desktop release can change them.
-If the markup or data changes, cards stop getting new labels and the console
-shows a `[hermes-kanban-tenant-labels]` warning. If the route changes, the
-plugin stays inactive without a warning. In both cases the board keeps working.
-If one of the plugin's host callbacks throws, the plugin removes its labels and
-stays off until you reload it.
+Labels need the slot (see [Requirements](#requirements)). Desktop decides how
+labels look and where they sit. Labels longer than 24 characters are shortened
+with an ellipsis, and the tooltip shows up to 160 characters.
 
-Labels appear only while the main route is `#/kanban`. A board in a split tile
-gets labels next to the main board, but not next to a chat. Each labeled card is
-one line taller. [docs/design.md](docs/design.md) lists the exact selectors and
-failure cases.
+Only the Hermes Desktop board shows labels, because the web dashboard's Kanban
+board has no card slot.
 
 ## Known issues
 
@@ -132,19 +136,14 @@ failure cases.
   run `hermes plugins disable hermes-kanban-tenant-labels`. The package has no
   Python code and does not ship an `__init__.py`. Installs from Hermes Desktop
   are not affected.
-- After a Desktop update, cards can stop getting labels. The console then shows
-  a `[hermes-kanban-tenant-labels]` warning. See [Limitations](#limitations).
 
 ## Catalog status
 
-This plugin is not in the Hermes plugin catalog. The
-[catalog rules](https://hermes-agent.nousresearch.com/docs/developer-guide/plugins/catalog-submission)
-admit only desktop plugins that stay inside the SDK, and this plugin reads the
-board's markup and the Kanban plugin's query cache because the SDK has no
-Kanban card slot. The slot is requested in
-[NousResearch/hermes-agent#140026](https://github.com/NousResearch/hermes-agent/issues/140026).
-[docs/sdk-slot-proposal.md](docs/sdk-slot-proposal.md) describes the slot this
-plugin would use.
+This plugin is not in the Hermes plugin catalog yet. Its entry,
+[NousResearch/hermes-agent#143060](https://github.com/NousResearch/hermes-agent/pull/143060),
+is on hold until a Hermes release ships the Kanban card badge slot
+([NousResearch/hermes-agent#143673](https://github.com/NousResearch/hermes-agent/pull/143673))
+that this plugin now uses.
 
 ## Uninstall
 
