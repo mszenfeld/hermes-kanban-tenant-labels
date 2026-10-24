@@ -22,6 +22,8 @@ label, and card titles stay as they are.
 - The bundled Kanban plugin, enabled in Capabilities → Plugins → Kanban.
 - Kanban cards with a tenant.
 
+Tested on macOS with Hermes Desktop built from hermes-agent commit `e04614a`, the merge of the card badge slot.
+
 ## Install
 
 ### From Hermes Desktop
