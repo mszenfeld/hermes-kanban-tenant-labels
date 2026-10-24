@@ -107,18 +107,29 @@ describe('plugin module', () => {
     assert.equal(ctx.pages[0].title, 'Kanban Tenant Labels')
   })
 
-  test('on a Hermes without the card badge slot, register() adds nothing and warns once', t => {
-    const ctx = fakeContext()
-    const warn = t.mock.method(console, 'warn', () => {})
+  for (const [condition, prepare] of [
+    ['the card badge slot is missing', () => sdk.setBadgeSlot(false)],
+    ['the badge area is missing', () => sdk.setBadgeSlot(true, { areas: undefined })],
+    ['the badge hues are missing', () => sdk.setBadgeSlot(true, { hues: undefined })],
+    ['there are too few badge hues', () => sdk.setBadgeSlot(true, { hues: sdk.KANBAN_CARD_BADGE_HUES.slice(0, -1) })],
+    ['there are too many badge hues', () => sdk.setBadgeSlot(true, { hues: [...sdk.KANBAN_CARD_BADGE_HUES, 'red'] })],
+    ['atom is missing', () => sdk.setBadgeSlot(true, { atom: undefined })],
+    ['ctx.register is missing', ctx => { delete ctx.register }],
+    ['ctx.setTimeout is missing', ctx => { delete ctx.setTimeout }]
+  ]) {
+    test(`register() adds nothing and warns once when ${condition}`, t => {
+      const ctx = fakeContext()
+      const warn = t.mock.method(console, 'warn', () => {})
 
-    sdk.setBadgeSlot(false)
-    definition.register(ctx)
+      prepare(ctx)
+      definition.register(ctx)
 
-    assert.equal(ctx.contributions.size, 0)
-    assert.equal(ctx.pages.length, 0)
-    assert.equal(warn.mock.callCount(), 1)
-    assert.ok(warn.mock.calls[0].arguments[0].startsWith('[hermes-kanban-tenant-labels] '))
-  })
+      assert.equal(ctx.contributions.size, 0)
+      assert.equal(ctx.pages.length, 0)
+      assert.equal(warn.mock.callCount(), 1)
+      assert.ok(warn.mock.calls[0].arguments[0].startsWith('[hermes-kanban-tenant-labels] '))
+    })
+  }
 
   test('register() on a host without registerSettingsPage still adds the badge', () => {
     const ctx = fakeContext()
@@ -162,6 +173,8 @@ describe('tenant badges', () => {
 
     assert.equal(badge.label, 'frontend')
     assert.equal(badge.tone, toneOf(assignColours(['backend', 'frontend']).get('frontend')))
+    ctx.flushTimeouts()
+    assert.deepEqual(rows(ctx).map(row => row.props.tenant), ['backend', 'frontend'])
   })
 
   test('tenants whose preferred hues collide get different hues', () => {
@@ -184,6 +197,20 @@ describe('tenant badges', () => {
       ctx.flushTimeouts()
       assert.deepEqual(rows(ctx).map(row => row.props.tenant), list)
     }
+  })
+
+  test('two tenant lists before the timeout fires publish only the latest', t => {
+    const ctx = fakeContext()
+    const schedule = t.mock.method(ctx, 'setTimeout')
+
+    definition.register(ctx)
+    badgeFor(ctx, 'design', ['design'])
+    badgeFor(ctx, 'design', ['api', 'design'])
+
+    assert.equal(schedule.mock.callCount(), 1)
+    assert.equal(rows(ctx).props.title, 'No tenants yet')
+    ctx.flushTimeouts()
+    assert.deepEqual(rows(ctx).map(row => row.props.tenant), ['api', 'design'])
   })
 
   test('each palette color is painted as the SDK hue at the same index', () => {

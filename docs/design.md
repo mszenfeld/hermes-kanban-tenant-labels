@@ -55,7 +55,8 @@ Deferring the update keeps it out of the board's render, which is when
 `decorate` runs.
 
 The settings page lists the tenants of the last board that rendered at least
-one card since Desktop started, plus pinned tenants. With no pinned tenants
+one card since the plugin was last loaded (Desktop start, a plugin reload or
+switching the plugin back on), plus pinned tenants. With no pinned tenants
 and no card rendered yet, it shows "No tenants yet" and:
 
 > Open a Kanban board that shows at least one card; its tenants show up here.

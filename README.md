@@ -22,7 +22,8 @@ label, and card titles stay as they are.
 - The bundled Kanban plugin, enabled in Capabilities → Plugins → Kanban.
 - Kanban cards with a tenant.
 
-Tested on macOS with Hermes Desktop built from hermes-agent commit `e04614a`, the merge of the card badge slot.
+Tested on macOS with Hermes Desktop built from hermes-agent commit `e04614a`,
+the merge of the card badge slot.
 
 ## Install
 
@@ -80,7 +81,8 @@ color for the tenant. Choose Automatic color to unpin it. A pinned color stays
 reserved even when its tenant is not on the board, and other tenants avoid
 pinned colors unless all 12 hues are pinned.
 The settings page lists the tenants of the last board that showed at least one
-card since Desktop started, plus pinned tenants. A board that shows no card,
+card since the plugin was last loaded (Desktop start, a plugin reload or
+switching the plugin back on), plus pinned tenants. A board that shows no card,
 for example when the filters match nothing, leaves that list as it was.
 
 Desktop paints the label. The plugin only picks one of the SDK's twelve badge
@@ -90,9 +92,10 @@ hues, `KANBAN_CARD_BADGE_HUES`, which are the same colors as this palette.
 
 ## Permissions & privacy
 
-The plugin reads only what Desktop passes to its card badge decorator: each
-card's tenant and the board's tenant list. No network requests, no query-cache
-reads, no backend, Python or shell commands, no telemetry.
+The plugin reads what Desktop passes to its card badge decorator (each card's
+tenant and the board's tenant list) and the pins it stored itself. No network
+requests, no query-cache reads, no backend, Python or shell commands, no
+telemetry.
 
 It stores only pinned colors through `ctx.storage` under `pins`
 (`hermes.plugin.hermes-kanban-tenant-labels.*`); writes no markup, because
