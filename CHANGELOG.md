@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-11-10
+
+Requires Hermes v0.22.6 or later, the first release with the Kanban card badge
+slot (`KANBAN_CARD_AREAS.badges`, NousResearch/hermes-agent#143673). On Hermes
+v0.22.5 and earlier the plugin shows no labels.
+
+### Changed
+
+- `requires_hermes` in `plugin.yaml` is now `>=0.22.6`.
+- Labels reach the cards through the Desktop SDK's Kanban card badge slot, and
+  Desktop paints them. The plugin no longer reads the board's markup or the
+  Kanban plugin's query cache.
+- The settings page lists the tenants of the last board that showed a card,
+  which Desktop passes to the plugin while the board renders.
+
+### Removed
+
+- The route check, the `MutationObserver`, the tile matching and the `<span>`
+  inserted into card tiles.
+- The console warnings about markup or data mismatches.
+
 ## [0.3.0] - 2026-10-22
 
 First public release.
@@ -23,4 +44,5 @@ First public release.
 - Installation from Git in Hermes Desktop, with `hermes plugins install`, or
   with a `hermes://plugin/install` link.
 
+[0.4.0]: https://github.com/mszenfeld/hermes-kanban-tenant-labels/releases/tag/v0.4.0
 [0.3.0]: https://github.com/mszenfeld/hermes-kanban-tenant-labels/releases/tag/v0.3.0
