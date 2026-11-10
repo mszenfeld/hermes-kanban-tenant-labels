@@ -2,12 +2,12 @@
 
 Notes for contributors: how the plugin labels Kanban cards through the card
 badge slot, assigns colors and uses the SDK contract. Source links point to
-hermes-agent at commit `e04614a`, the merge of
-[NousResearch/hermes-agent#143673](https://github.com/NousResearch/hermes-agent/pull/143673),
-because no Hermes release includes the slot yet. The contract is defined in
-[kanban-card-badges.tsx](https://github.com/NousResearch/hermes-agent/blob/e04614af7bb4e982b76e5256f5ec207198e0641e/apps/desktop/src/contrib/kanban-card-badges.tsx)
+hermes-agent at the `v0.22.6` tag, the first release with the slot from
+[NousResearch/hermes-agent#143673](https://github.com/NousResearch/hermes-agent/pull/143673).
+The contract is defined in
+[kanban-card-badges.tsx](https://github.com/NousResearch/hermes-agent/blob/v0.22.6/apps/desktop/src/contrib/kanban-card-badges.tsx)
 and the
-[Desktop plugin SDK guide](https://github.com/NousResearch/hermes-agent/blob/e04614af7bb4e982b76e5256f5ec207198e0641e/website/docs/developer-guide/desktop-plugin-sdk.md#kanban-card-badges).
+[Desktop plugin SDK guide](https://github.com/NousResearch/hermes-agent/blob/v0.22.6/website/docs/developer-guide/desktop-plugin-sdk.md#kanban-card-badges).
 
 ## The card badge slot
 
@@ -69,11 +69,12 @@ always use the current board's tenant list.
 
 ## Older Hermes releases
 
-The plugin imports the SDK as a namespace so it can check for the slot without
-failing to load the module on older hosts. If `KANBAN_CARD_AREAS.badges`, a
-12-element `KANBAN_CARD_BADGE_HUES`, `atom`, `ctx.register` or `ctx.setTimeout`
-is missing, it logs one console warning and registers neither badges nor a
-settings page:
+`plugin.yaml` declares `requires_hermes: ">=0.22.6"`. Desktop may still load the
+plugin on an older host, so the plugin imports the SDK as a namespace and checks
+for the slot without failing to load the module. If `KANBAN_CARD_AREAS.badges`,
+a 12-element `KANBAN_CARD_BADGE_HUES`, `atom`, `ctx.register` or
+`ctx.setTimeout` is missing, it logs one console warning and registers neither
+badges nor a settings page:
 
 ```text
 [hermes-kanban-tenant-labels] This Hermes Desktop has no Kanban card badge slot (KANBAN_CARD_AREAS.badges); labels are off.

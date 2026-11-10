@@ -11,19 +11,19 @@ label, and card titles stay as they are.
 
 ## Requirements
 
-- A Hermes release that includes the Kanban card badge slot of the Desktop
-  plugin SDK (`KANBAN_CARD_AREAS.badges`, added in
+- Hermes v0.22.6 or later, the first release with the Kanban card badge slot of
+  the Desktop plugin SDK (`KANBAN_CARD_AREAS.badges`, added in
   [NousResearch/hermes-agent#143673](https://github.com/NousResearch/hermes-agent/pull/143673)).
-  Hermes v0.22.5 and earlier do not have it: the plugin then adds no labels and
-  logs one `[hermes-kanban-tenant-labels]` console warning. On those versions use
+  Hermes v0.22.5 and earlier do not have it, and the plugin shows no labels
+  there. When Desktop loads it on such a version, it logs one
+  `[hermes-kanban-tenant-labels]` console warning. On those versions use
   [v0.3.0](https://github.com/mszenfeld/hermes-kanban-tenant-labels/releases/tag/v0.3.0),
   for example
   `hermes plugins install mszenfeld/hermes-kanban-tenant-labels --ref 48f4f34da212c8322e50dbcbbd4dfd2936ca6d41 --no-enable`.
 - The bundled Kanban plugin, enabled in Capabilities → Plugins → Kanban.
 - Kanban cards with a tenant.
 
-Tested on macOS with Hermes Desktop built from hermes-agent commit `e04614a`,
-the merge of the card badge slot.
+Tested on macOS with Hermes Desktop built from the hermes-agent v0.23.1 tag.
 
 ## Install
 
@@ -141,9 +141,10 @@ board has no card slot.
 
 This plugin is not in the Hermes plugin catalog yet. Its entry,
 [NousResearch/hermes-agent#143060](https://github.com/NousResearch/hermes-agent/pull/143060),
-is on hold until a Hermes release ships the Kanban card badge slot
-([NousResearch/hermes-agent#143673](https://github.com/NousResearch/hermes-agent/pull/143673))
-that this plugin now uses.
+was held for the Kanban card badge slot
+([NousResearch/hermes-agent#143673](https://github.com/NousResearch/hermes-agent/pull/143673)),
+which Hermes ships from v0.22.6. The entry still points to v0.3.0 and has to be
+re-pinned to a release that uses the slot.
 
 ## Uninstall
 
